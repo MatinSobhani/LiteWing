@@ -30,6 +30,7 @@
 #include <stdint.h>
 
 #include "estimator.h"
+#include "stabilizer_types.h"
 
 #define EMERGENCY_STOP_TIMEOUT_DISABLED (-1)
 
@@ -63,6 +64,14 @@ void stabilizerResetEmergencyStop();
  *                RATE_MAIN_LOOP.
  */
 void stabilizerSetEmergencyStopTimeout(int timeout);
+
+/**
+ * Copy the latest stabilizer state for low-rate telemetry.
+ *
+ * The snapshot has the same consistency model as the log subsystem: values are
+ * copied without stopping the stabilizer loop.
+ */
+void stabilizerGetLatestState(state_t *stateOut, sensorData_t *sensorOut, control_t *controlOut);
 
 
 #endif /* STABILIZER_H_ */

@@ -43,6 +43,14 @@ bool wifiTest(void);
 bool wifiGetDataBlocking(UDPPacket *in);
 
 /**
+ * Inject a received ESP-NOW packet into the same CRTP input queue used by UDP.
+ *
+ * This is intentionally non-blocking because ESP-NOW receive callbacks run from
+ * the Wi-Fi task context.
+ */
+bool wifiInjectRxPacket(uint32_t size, const uint8_t *data);
+
+/**
  * Sends raw data using a lock. Should be used from
  * exception functions and for debugging when a lot of data
  * should be transfered.

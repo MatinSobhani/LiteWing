@@ -346,6 +346,21 @@ void stabilizerSetEmergencyStopTimeout(int timeout)
   emergencyStopTimeout = timeout;
 }
 
+void stabilizerGetLatestState(state_t *stateOut, sensorData_t *sensorOut, control_t *controlOut)
+{
+  if (stateOut) {
+    *stateOut = state;
+  }
+
+  if (sensorOut) {
+    *sensorOut = sensorData;
+  }
+
+  if (controlOut) {
+    *controlOut = control;
+  }
+}
+
 static float variance(float *buffer, uint32_t length)
 {
   uint32_t i;

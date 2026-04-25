@@ -31,10 +31,13 @@
 #include "config.h"
 #include "wifilink.h"
 #include "wifi_esp32.h"
+#include "litewing_espnow.h"
 #include "crtp.h"
 #include "configblock.h"
 #include "ledseq.h"
 #include "pm_esplane.h"
+#include "stabilizer.h"
+#include "system.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -47,6 +50,7 @@
 #include "static_mem.h"
 
 #define WIFI_ACTIVITY_TIMEOUT_MS (1000)
+#define CRTP_RPYT_SETPOINT_SIZE  (sizeof(float) * 3 + sizeof(uint16_t))
 
 static bool isInit = false;
 static xQueueHandle crtpPacketDelivery;
@@ -94,6 +98,57 @@ static bool detectEspNow(UDPPacket *in)
     return false;
 }
 
+static void encodeRpytSetpoint(CRTPPacket *p, float roll, float pitch, float yaw, uint16_t thrust)
+{
+    p->size = CRTP_RPYT_SETPOINT_SIZE;
+    p->header = CRTP_HEADER(CRTP_PORT_SETPOINT, 0x00);
+
+    memcpy(&p->data[0], &roll, sizeof(roll));
+    memcpy(&p->data[4], &pitch, sizeof(pitch));
+    memcpy(&p->data[8], &yaw, sizeof(yaw));
+    memcpy(&p->data[12], &thrust, sizeof(thrust));
+}
+
+static bool decodeLiteWingCommand(UDPPacket *in, CRTPPacket *p)
+{
+    if (in->size != sizeof(litewing_command_packet_t)) {
+        return false;
+    }
+
+    litewing_command_packet_t command;
+    memcpy(&command, in->data, sizeof(command));
+
+    if (memcmp(command.magic, LITEWING_COMMAND_MAGIC, sizeof(command.magic)) != 0 ||
+            command.version != LITEWING_ESPNOW_VERSION) {
+        return false;
+    }
+
+    if (command.flags & LITEWING_COMMAND_FLAG_RESET_STOP) {
+        stabilizerResetEmergencyStop();
+    }
+
+    if (command.flags & LITEWING_COMMAND_FLAG_ESTOP) {
+        stabilizerSetEmergencyStop();
+        command.thrust = 0;
+    }
+
+    if (command.flags & LITEWING_COMMAND_FLAG_ARM) {
+        systemSetArmed(true);
+    }
+
+    if (command.flags & LITEWING_COMMAND_FLAG_DISARM) {
+        systemSetArmed(false);
+        command.thrust = 0;
+    }
+
+    encodeRpytSetpoint(p,
+                       command.roll_cdeg / 100.0f,
+                       command.pitch_cdeg / 100.0f,
+                       command.yaw_rate_cdeg_s / 100.0f,
+                       command.thrust);
+    return true;
+}
+
 static void wifilinkTask(void *param)
 {
     CRTPPacket p = {0};
@@ -110,16 +165,12 @@ static void wifilinkTask(void *param)
             pch  = (-1.0) * (float)(((((uint16_t)wifiIn.data[3] << 8) + (uint16_t)wifiIn.data[4]) - 296) * 15.0 / 150.0); //-15~+15
             tch  = (((uint16_t)wifiIn.data[5] << 8) + (uint16_t)wifiIn.data[6]) * 59000.0 / 600.0;
             ych  = (float)(((((uint16_t)wifiIn.data[7] << 8) + (uint16_t)wifiIn.data[8]) - 296) * 15.0 / 150.0); //-15~+15
-            p.size = wifiIn.size - 1;
-            p.header = CRTP_HEADER(CRTP_PORT_SETPOINT, 0x00); //head redefine
-
-            memcpy(&p.data[0], &rch, 4);
-            memcpy(&p.data[4], &pch, 4);
-            memcpy(&p.data[8], &ych, 4);
-            memcpy(&p.data[12], &tch, 2);
+            encodeRpytSetpoint(&p, rch, pch, ych, tch);
         } else
 #endif
-        if (detectEspNow(&wifiIn)) {
+        if (decodeLiteWingCommand(&wifiIn, &p)) {
+            sendWaitMs = 0;
+        } else if (detectEspNow(&wifiIn)) {
             float rch, pch, ych;
             uint16_t tch;
             rch  = (float)((int8_t)wifiIn.data[6] * 15.0 / 128);; //-15~+15
@@ -130,14 +181,7 @@ static void wifilinkTask(void *param)
                 tch  = (int8_t)wifiIn.data[4] * 59000.0 / 128;
             }
             ych  = (float)((int8_t)wifiIn.data[3] * 15.0 / 128); //-15~+15
-            p.size = wifiIn.size - 1;
-            p.header = CRTP_HEADER(CRTP_PORT_SETPOINT, 0x00); //head redefine
-
-            //printf("rch: %.2f, pch: %.2f, tch: %d, ych: %.2f\n", rch, pch, tch, ych);
-            memcpy(&p.data[0], &rch, 4);
-            memcpy(&p.data[4], &pch, 4);
-            memcpy(&p.data[8], &ych, 4);
-            memcpy(&p.data[12], &tch, 2);
+            encodeRpytSetpoint(&p, rch, pch, ych, tch);
         } else
         {
             /* command step - receive  04 copy CRTP part from packet, the size not contain head */

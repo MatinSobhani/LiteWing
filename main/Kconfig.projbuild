@@ -73,6 +73,23 @@ menu "ESPDrone Config"
             default 3
             help
                 Wi-Fi Max Station Connection, 1-6
+        config LITEWING_ENABLE_ESPNOW_TELEMETRY
+            bool "Enable LiteWing ESP-NOW telemetry broadcast"
+            default y
+            help
+                Broadcast compact JSON telemetry packets over ESP-NOW on the Wi-Fi channel.
+        config LITEWING_ESPNOW_TELEMETRY_PERIOD_MS
+            int "LiteWing ESP-NOW telemetry period in ms"
+            depends on LITEWING_ENABLE_ESPNOW_TELEMETRY
+            range 50 5000
+            default 200
+            help
+                Period for broadcast telemetry. 200 ms is 5 Hz.
+        config LITEWING_ENABLE_ESPNOW_COMMAND_RX
+            bool "Enable LiteWing ESP-NOW command receiver"
+            default y
+            help
+                Receive LiteWing command packets and legacy 'now' joystick packets over ESP-NOW.
     endmenu
 
     menu "calibration angle"
